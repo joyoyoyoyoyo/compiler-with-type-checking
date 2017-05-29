@@ -70,6 +70,10 @@ void TypeCheck::visitProgramNode(ProgramNode* node) {
   // WRITEME: Replace with code if necessary
   classTable = new ClassTable();
   node ->visit_children(this);
+  if(classTable->count("Main")==0)
+    typeError(no_main_class);
+  else if((*classTable)["Main"].methods->count("main")==0)
+    typeError(no_main_method);
 }
 
 void TypeCheck::visitClassNode(ClassNode* node) {
