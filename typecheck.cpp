@@ -67,20 +67,24 @@ void typeError(TypeErrorCode code) {
 // Not all functions must have code, many may be left empty.
 
 void TypeCheck::visitProgramNode(ProgramNode* node) {
-  // WRITEME: Replace with code if necessary
   classTable = new ClassTable();
   node ->visit_children(this);
+  std::string programName = "Main";
+  ClassTable::const_iterator it = classTable->find(programName);
+  VariableTable* mainMembers = classTable->at(programName).members;
+  MethodTable* mainMethods = classTable->at(programName).methods;
 
-  if((*classTable).find("Main") == (*classTable).end()){
+
+  if(it == (*classTable).end()){
     typeError(no_main_class);
-  }else{
-    if((*(*classTable)["Main"].members).size() != 0){
+  } else{
+    if(mainMembers->size() != 0) {
       typeError(main_class_members_present);
     }
-    if((*(*classTable)["Main"].methods).find("main") == (*(*classTable)["Main"].methods).end()){
+    if(mainMethods->find("main") == mainMethods->end()){
       typeError(no_main_method);
     }else{
-      if((*(*classTable)["Main"].methods)["main"].returnType.baseType != bt_none){
+      if(mainMethods->at("main").returnType.baseType != bt_none){
         typeError(main_method_incorrect_signature);
       }
     }
