@@ -68,10 +68,13 @@ void typeError(TypeErrorCode code) {
 
 void TypeCheck::visitProgramNode(ProgramNode* node) {
   // WRITEME: Replace with code if necessary
+  classTable = new ClassTable();
+  node ->visit_children(this);
 }
 
 void TypeCheck::visitClassNode(ClassNode* node) {
   // WRITEME: Replace with code if necessary
+
 }
 
 void TypeCheck::visitMethodNode(MethodNode* node) {
