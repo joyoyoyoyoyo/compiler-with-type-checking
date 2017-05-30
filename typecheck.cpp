@@ -158,9 +158,6 @@ void TypeCheck::visitMethodNode(MethodNode *node) {
       nodeAST,
       node->type->objectClassName
   };
-  if (nodeAST == bt_none && returnStatement) {
-    typeError(return_type_mismatch);
-  }
   if (!returnStatement && nodeAST != bt_none) {
     typeError(return_type_mismatch);
   }
@@ -173,6 +170,10 @@ void TypeCheck::visitMethodNode(MethodNode *node) {
   if (node->identifier->name == currentClassName && nodeAST != bt_none) {
     typeError(constructor_returns_type);
   }
+  if (nodeAST == bt_none && returnStatement) {
+    typeError(return_type_mismatch);
+  }
+
   for (std::list<ParameterNode *>::const_iterator iterator = node->parameter_list->begin();
        iterator != node->parameter_list->end(); ++iterator) {
     CompoundType paramInfo = {
@@ -195,20 +196,29 @@ void TypeCheck::visitMethodBodyNode(MethodBodyNode *node) {
 void TypeCheck::visitParameterNode(ParameterNode *node) {
   // WRITEME: Replace with code if necessary
   node->visit_children(this);
-  node->basetype = node->type->basetype;
-  node->objectClassName = (node->basetype == bt_object ? node->type->objectClassName : "");
-  VariableInfo VI;
-  CompoundType CT;
-  CT.baseType = node->basetype;
-  CT.objectClassName = (node->basetype == bt_object ? node->type->objectClassName : "");
-  VI.type = CT;
+  const int byte_count = 4;
+  const std::string ID = node->identifier->name;
+  std::string nameASTnode;
 
-  VI.offset = this->currentParameterOffset;
-  this->currentParameterOffset = this->currentParameterOffset + 4;
+  if (node->basetype != bt_object)
+    nameASTnode = "";
+  if (node->basetype == bt_object)
+    nameASTnode = node->type->objectClassName;
 
-  VI.size = 4;
-
-  (*currentVariableTable)[node->identifier->name] = VI;
+  const BaseType nodeAST = node->type->basetype;
+  node->basetype = nodeAST;
+  node->objectClassName = nameASTnode;
+  CompoundType methodBodyType = {
+      node->basetype,
+      node->basetype != bt_object ? "" : node->type->objectClassName
+  };
+  VariableInfo info = {
+      methodBodyType,
+      currentParameterOffset,
+      byte_count
+  };
+  currentParameterOffset = currentParameterOffset + byte_count;
+  (*currentVariableTable)[ID] = info;
 }
 
 void TypeCheck::visitDeclarationNode(DeclarationNode *node) {
@@ -266,46 +276,57 @@ void TypeCheck::visitAssignmentNode(AssignmentNode *node) {
   bool memfound;
   std::string className;
   std::string refClass;
+  std::string NAME = node->identifier_1->name;
+  const VariableTable *programVarTable = classTable->at(currentClassName).members;
+  const MethodTable *programMethodTable = classTable->at(currentClassName).methods;
+//  const MethodTable* programMethodTable = currentMethodTable;
+//  const ClassTable::const_iterator className = (*classTable).find(programName);
+//  const std::string programName = "Main" ;
 
-  if (node->identifier_2 == NULL) {
-    if ((*currentVariableTable).find(node->identifier_1->name) != (*currentVariableTable).end()) {
-      node->basetype = (*currentVariableTable)[node->identifier_1->name].type.baseType;
-      node->objectClassName = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
+
+  if (node->identifier_2 == NULL ) {
+    if ((*currentVariableTable).count(NAME)) {
+      node->basetype = (*currentVariableTable)[NAME].type.baseType;
+      node->objectClassName = (*currentVariableTable)[NAME].type.objectClassName;
     } else {
       found = false;
       className = this->currentClassName;
       while (className != "" && !found) {
-        if ((*(*classTable)[className].members).find(node->identifier_1->name) !=
-            (*(*classTable)[className].members).end()) {
-          found = true;
-          node->basetype = (*(*classTable)[className].members)[node->identifier_1->name].type.baseType;
-          node->objectClassName = (*(*classTable)[className].members)[node->identifier_1->name].type.objectClassName;
-          break;
+          found = ((*(*classTable)[className].members).count(NAME));
+          if (found) {
+          node->basetype = (*(*classTable)[className].members)[NAME].type.baseType;
+          node->objectClassName = (*(*classTable)[className].members)[NAME].type.objectClassName;
         }
         className = (*classTable)[className].superClassName;
       }
 
-      if (found == false) {
+      if (!found) {
         typeError(undefined_variable);
       }
     }
-  } else { //member is identifier_1, variable identifier_2; see if member exists and the use classname to look up variable to set basetype
+  }
+
+
+
+
+
+  else { //member is identifier_1, variable identifier_2; see if member exists and the use classname to look up variable to set basetype
     found = false;
     memfound = false;
 
-    if ((*currentVariableTable).find(node->identifier_1->name) != (*currentVariableTable).end()) {
-      className = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
+    if ((*currentVariableTable).count(NAME)) {
+      className = (*currentVariableTable)[NAME].type.objectClassName;
       found = true;
       refClass = className;
-      if ((*currentVariableTable)[node->identifier_1->name].type.baseType != bt_object) {
+      if ((*currentVariableTable)[NAME].type.baseType != bt_object) {
         typeError(not_object);
       }
     } else {
       className = this->currentClassName;
       while (className != "" && !found) {
-        if ((*(*classTable)[className].members).find(node->identifier_1->name) !=
+        if ((*(*classTable)[className].members).find(NAME) !=
             (*(*classTable)[className].members).end()) {
-          if ((*(*classTable)[className].members)[node->identifier_1->name].type.baseType != bt_object) {
+          if ((*(*classTable)[className].members)[NAME].type.baseType != bt_object) {
             typeError(not_object);
           }
           found = true;
@@ -323,8 +344,7 @@ void TypeCheck::visitAssignmentNode(AssignmentNode *node) {
     while (refClass != "" && !memfound) {
 
 
-      if ((*(*classTable)[refClass].members).find(node->identifier_2->name) !=
-          (*(*classTable)[refClass].members).end()) {
+      if ((*(*classTable)[refClass].members).count(node->identifier_2->name)) {
         memfound = true;
         node->basetype = (*(*classTable)[refClass].members)[node->identifier_2->name].type.baseType;
         node->objectClassName = (*(*classTable)[refClass].members)[node->identifier_2->name].type.objectClassName;
