@@ -112,10 +112,9 @@ void TypeCheck::visitProgramNode(ProgramNode *node) {
 }
 
 
-
 void TypeCheck::visitClassNode(ClassNode *node) {
 
-  IdentifierNode* secondID = node->identifier_2;
+  IdentifierNode *secondID = node->identifier_2;
 
   ClassInfo info;
 
@@ -129,6 +128,7 @@ void TypeCheck::visitClassNode(ClassNode *node) {
 
   if (secondID && !classTable->count(secondID->name)) {
     typeError(undefined_class);
+    return;
   }
 
   info.superClassName = (secondID) ? secondID->name : "";
@@ -142,67 +142,49 @@ void TypeCheck::visitClassNode(ClassNode *node) {
 
 void TypeCheck::visitMethodNode(MethodNode *node) {
   // WRITEME: Replace with code if necessary
-  this->currentParameterOffset = 12;
-  this->currentLocalOffset = -4;
+  MethodInfo info;
 
-  MethodInfo MI;
-  CompoundType rtype;
+  currentParameterOffset = 12;
+  currentLocalOffset = -4;
+  currentVariableTable = new VariableTable();
+  info.variables = currentVariableTable;
+  info.parameters = new std::list<CompoundType>();
 
-  this->currentVariableTable = new VariableTable();
-  MI.variables = this->currentVariableTable;
-  MI.parameters = new std::list<CompoundType>();
-  // MI.returnType = rtype;
-  //save name if object type;
   node->visit_children(this);
-
-  for (std::list<ParameterNode *>::iterator it = node->parameter_list->begin();
-       it != node->parameter_list->end(); ++it) {
-    CompoundType param;
-
-    param.baseType = (*it)->basetype;
-    param.objectClassName = (*it)->type->objectClassName;
-
-    MI.parameters->push_back(param);
+  const BaseType nodeAST = node->type->basetype;
+  const ReturnStatementNode *returnStatement = node->methodbody->returnstatement;
+  const std::string ID = node->identifier->name;
+  CompoundType returnType = {
+      nodeAST,
+      node->type->objectClassName
+  };
+  if (nodeAST == bt_none && returnStatement) {
+    typeError(return_type_mismatch);
   }
-
-
-  rtype.baseType = node->type->basetype;
-  rtype.objectClassName = node->type->objectClassName;
-  MI.returnType = rtype;
-
-  //node->basetype = node->type->basetype;
-  //node->objectClassName = node->type->objectClassName;
-  //visit type
-  //insert
-  //vc
-  (*currentMethodTable)[node->identifier->name] = MI;
-
-  if (node->identifier->name == this->currentClassName) {
-    if (node->type->basetype != bt_none) {
-      typeError(constructor_returns_type);
-    }
+  if (!returnStatement && nodeAST != bt_none) {
+    typeError(return_type_mismatch);
   }
-
-  if (node->type->basetype == bt_none) {
-    if (node->methodbody->returnstatement != NULL) {
-      typeError(return_type_mismatch);
-    }
-  } else {
-    if (node->methodbody->returnstatement == NULL) {
-      typeError(return_type_mismatch);
-    } else {
-      if (node->type->basetype != node->methodbody->returnstatement->basetype) {
-        typeError(return_type_mismatch);
-      }
-      if (node->type->basetype == bt_object) {
-        if (node->type->objectClassName != node->methodbody->returnstatement->objectClassName) {
-          typeError(return_type_mismatch);
-        }
-      }
-    }
+  if (returnStatement && nodeAST != returnStatement->basetype && nodeAST != bt_none) {
+    typeError(return_type_mismatch);
   }
-  (*currentMethodTable)[node->identifier->name].localsSize = 4 * (MI.variables->size() - MI.parameters->size());
-
+  if (returnStatement && nodeAST == bt_object && nodeAST != bt_none && node->type->objectClassName != returnStatement->objectClassName) {
+    typeError(return_type_mismatch);
+  }
+  if (node->identifier->name == currentClassName && nodeAST != bt_none) {
+    typeError(constructor_returns_type);
+  }
+  for (std::list<ParameterNode *>::const_iterator iterator = node->parameter_list->begin();
+       iterator != node->parameter_list->end(); ++iterator) {
+    CompoundType paramInfo = {
+        (*iterator)->basetype,
+        (*iterator)->objectClassName = (*iterator)->type->objectClassName
+    };
+    info.parameters->push_back(paramInfo);
+  }
+  int keysize = info.variables->size() - info.parameters->size();
+  info.localsSize = 4*keysize;
+  info.returnType = returnType;
+  (*currentMethodTable)[ID] = info;
 }
 
 void TypeCheck::visitMethodBodyNode(MethodBodyNode *node) {
