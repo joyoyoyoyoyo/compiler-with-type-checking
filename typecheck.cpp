@@ -487,11 +487,66 @@ void TypeCheck::visitNegationNode(NegationNode *node) {
 void TypeCheck::visitMethodCallNode(MethodCallNode *node) {
   // WRITEME: Replace with code if necessary
   node->visit_children(this);
-  bool found;
-  bool methodfound;
-  std::string className;
-  std::string refClass;
-  if (node->identifier_2 == NULL) {
+  bool isLocated = false;
+  bool bufferisA = false;
+  std::string myClass;
+  std::string reference;
+  if (node->identifier_2 && (*currentVariableTable).count(node->identifier_1->name) && (*currentVariableTable)[node->identifier_1->name].type.baseType != bt_object) {
+    typeError(not_object);
+  }
+  if (node->identifier_2) {
+    if ((*currentVariableTable).count(node->identifier_1->name) && node->identifier_2) {
+      myClass = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
+      isLocated = true;
+      reference = myClass;
+    }
+    if (!(*currentVariableTable).count(node->identifier_1->name) && node->identifier_2){
+      myClass = currentClassName;
+      while (myClass != "" && !isLocated) {
+        if ((*(*classTable)[myClass].members).count(node->identifier_1->name)) {
+          if ((*(*classTable)[myClass].members)[node->identifier_1->name].type.baseType != bt_object)
+            typeError(not_object);
+          isLocated = true;
+          reference = (*(*classTable)[myClass].members)[node->identifier_1->name].type.objectClassName;
+          break;
+        }
+        myClass = (*classTable)[myClass].superClassName;
+      }
+    }
+
+    if (!isLocated && node->identifier_2) {
+      typeError(undefined_variable);
+    }
+
+    while (reference != "" && !bufferisA && node->identifier_2) {
+      if ((*(*classTable)[reference].methods).find(node->identifier_2->name) !=
+          (*(*classTable)[reference].methods).end()) {
+        node->basetype = (*(*classTable)[reference].methods)[node->identifier_2->name].returnType.baseType;
+        node->objectClassName = (*(*classTable)[reference].methods)[node->identifier_2->name].returnType.objectClassName;
+        bufferisA = true;
+        break;
+      }
+      reference = (*classTable)[reference].superClassName;
+    }
+
+    if (!bufferisA) {
+      typeError(undefined_method);
+    }
+
+    if ((*(*(*classTable)[reference].methods)[node->identifier_2->name].parameters).size() !=
+        node->expression_list->size()) {
+      typeError(argument_number_mismatch);
+    }
+    std::list<CompoundType>::iterator p = (*(*classTable)[reference].methods)[node->identifier_2->name].parameters->begin();
+    for (std::list<ExpressionNode *>::iterator e = node->expression_list->begin();
+         e != node->expression_list->end(); ++p, ++e) {
+      if ((*p).baseType != (*e)->basetype) {
+        typeError(argument_type_mismatch);
+      }
+    }
+  }
+
+  else {
     if ((*currentMethodTable).find(node->identifier_1->name) != (*currentMethodTable).end()) {
       node->basetype = (*currentMethodTable)[node->identifier_1->name].returnType.baseType;
       node->objectClassName = (*currentMethodTable)[node->identifier_1->name].returnType.objectClassName;
@@ -509,30 +564,30 @@ void TypeCheck::visitMethodCallNode(MethodCallNode *node) {
       }
 
     } else {
-      found = false;
-      className = this->currentClassName;
-      while (className != "" && !found) {
-        if ((*(*classTable)[className].methods).find(node->identifier_1->name) !=
-            (*(*classTable)[className].methods).end()) {
-          found = true;
-          node->basetype = (*(*classTable)[className].methods)[node->identifier_1->name].returnType.baseType;
-          node->objectClassName = (*(*classTable)[className].methods)[node->identifier_1->name].returnType.objectClassName;
-          refClass = className;
+      isLocated = false;
+      myClass = this->currentClassName;
+      while (myClass != "" && !isLocated) {
+        if ((*(*classTable)[myClass].methods).find(node->identifier_1->name) !=
+            (*(*classTable)[myClass].methods).end()) {
+          isLocated = true;
+          node->basetype = (*(*classTable)[myClass].methods)[node->identifier_1->name].returnType.baseType;
+          node->objectClassName = (*(*classTable)[myClass].methods)[node->identifier_1->name].returnType.objectClassName;
+          reference = myClass;
           break;
         }
-        className = (*classTable)[className].superClassName;
+        myClass = (*classTable)[myClass].superClassName;
       }
 
-      if (found == false) {
+      if (isLocated == false) {
         typeError(undefined_method);
       }
 
-      if ((*(*(*classTable)[refClass].methods)[node->identifier_1->name].parameters).size() !=
+      if ((*(*(*classTable)[reference].methods)[node->identifier_1->name].parameters).size() !=
           node->expression_list->size()) {
         typeError(argument_number_mismatch);
       }
 
-      std::list<CompoundType>::iterator p = (*(*classTable)[refClass].methods)[node->identifier_1->name].parameters->begin();
+      std::list<CompoundType>::iterator p = (*(*classTable)[reference].methods)[node->identifier_1->name].parameters->begin();
       for (std::list<ExpressionNode *>::iterator e = node->expression_list->begin();
            e != node->expression_list->end(); ++p, ++e) {
         if ((*p).baseType != (*e)->basetype) {
@@ -541,118 +596,60 @@ void TypeCheck::visitMethodCallNode(MethodCallNode *node) {
       }
 
     }
-  } else {
-
-    found = false;
-    methodfound = false;
-
-    if ((*currentVariableTable).find(node->identifier_1->name) != (*currentVariableTable).end()) {
-      className = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
-      found = true;
-      refClass = className;
-      if ((*currentVariableTable)[node->identifier_1->name].type.baseType != bt_object) {
-        typeError(not_object);
-      }
-    } else {
-      className = this->currentClassName;
-      while (className != "" && !found) {
-        if ((*(*classTable)[className].members).find(node->identifier_1->name) !=
-            (*(*classTable)[className].members).end()) {
-          if ((*(*classTable)[className].members)[node->identifier_1->name].type.baseType != bt_object) {
-            typeError(not_object);
-          }
-          found = true;
-          refClass = (*(*classTable)[className].members)[node->identifier_1->name].type.objectClassName;
-          break;
-        }
-        className = (*classTable)[className].superClassName;
-      }
-    }
-
-    if (found == false) {
-      typeError(undefined_variable);
-    }
-
-    while (refClass != "" && !methodfound) {
-      if ((*(*classTable)[refClass].methods).find(node->identifier_2->name) !=
-          (*(*classTable)[refClass].methods).end()) {
-        node->basetype = (*(*classTable)[refClass].methods)[node->identifier_2->name].returnType.baseType;
-        node->objectClassName = (*(*classTable)[refClass].methods)[node->identifier_2->name].returnType.objectClassName;
-        methodfound = true;
-        break;
-      }
-      refClass = (*classTable)[refClass].superClassName;
-    }
-
-    if (methodfound == false) {
-      typeError(undefined_method);
-    }
-
-    if ((*(*(*classTable)[refClass].methods)[node->identifier_2->name].parameters).size() !=
-        node->expression_list->size()) {
-      typeError(argument_number_mismatch);
-    }
-    std::list<CompoundType>::iterator p = (*(*classTable)[refClass].methods)[node->identifier_2->name].parameters->begin();
-    for (std::list<ExpressionNode *>::iterator e = node->expression_list->begin();
-         e != node->expression_list->end(); ++p, ++e) {
-      if ((*p).baseType != (*e)->basetype) {
-        typeError(argument_type_mismatch);
-      }
-    }
   }
 }
 
 void TypeCheck::visitMemberAccessNode(MemberAccessNode *node) {
   // WRITEME: Replace with code if necessary
   node->visit_children(this);
-  std::string className;
+  std::string myClass;
   std::string refClass;
-  bool found = false;
-  bool memfound = false;
+  bool isLocated = false;
+  bool isBufferA = false;
 
 
   if ((*currentVariableTable).find(node->identifier_1->name) != (*currentVariableTable).end()) {
-    className = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
-    found = true;
-    refClass = className;
+    myClass = (*currentVariableTable)[node->identifier_1->name].type.objectClassName;
+    isLocated = true;
+    refClass = myClass;
     if ((*currentVariableTable)[node->identifier_1->name].type.baseType != bt_object) {
       typeError(not_object);
     }
   } else {
-    className = this->currentClassName;
-    while (className != "" && !found) {
-      if ((*(*classTable)[className].members).find(node->identifier_1->name) !=
-          (*(*classTable)[className].members).end()) {
-        if ((*(*classTable)[className].members)[node->identifier_1->name].type.baseType != bt_object) {
+    myClass = this->currentClassName;
+    while (myClass != "" && !isLocated) {
+      if ((*(*classTable)[myClass].members).find(node->identifier_1->name) !=
+          (*(*classTable)[myClass].members).end()) {
+        if ((*(*classTable)[myClass].members)[node->identifier_1->name].type.baseType != bt_object) {
           typeError(not_object);
         }
-        found = true;
-        refClass = (*(*classTable)[className].members)[node->identifier_1->name].type.objectClassName;
+        isLocated = true;
+        refClass = (*(*classTable)[myClass].members)[node->identifier_1->name].type.objectClassName;
         break;
       }
-      className = (*classTable)[className].superClassName;
+      myClass = (*classTable)[myClass].superClassName;
 
     }
   }
 
-  if (found == false) {
+  if (isLocated == false) {
     typeError(undefined_variable);
   }
 
   //refclass empty
-  while (refClass != "" && !memfound) {
+  while (refClass != "" && !isBufferA) {
 
     if ((*(*classTable)[refClass].members).find(node->identifier_2->name) != (*(*classTable)[refClass].members).end()) {
       node->basetype = (*(*classTable)[refClass].members)[node->identifier_2->name].type.baseType;
       node->objectClassName = (*(*classTable)[refClass].members)[node->identifier_2->name].type.objectClassName;
-      memfound = true;
+      isBufferA = true;
       break;
     }
     refClass = (*classTable)[refClass].superClassName;
   }
 
 
-  if (memfound == false) {
+  if (isBufferA == false) {
     typeError(undefined_member);
   }
 }
