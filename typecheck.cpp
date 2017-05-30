@@ -111,33 +111,32 @@ void TypeCheck::visitProgramNode(ProgramNode *node) {
 
 }
 
+
+
 void TypeCheck::visitClassNode(ClassNode *node) {
 
-  ClassInfo CI;
+  IdentifierNode* secondID = node->identifier_2;
 
-  if (node->identifier_2) {
-    if ((*classTable).find(node->identifier_2->name) == (*classTable).end()) {
-      typeError(undefined_class);
-    }
-    CI.superClassName = node->identifier_2->name;
-  } else {
-    CI.superClassName = "";
+  ClassInfo info;
+
+  // class name
+  currentClassName = node->identifier_1->name;
+  currentMethodTable = new MethodTable();
+  currentVariableTable = new VariableTable();
+  currentLocalOffset = 0;
+  currentMemberOffset = 0;
+  currentParameterOffset = 0;
+
+  if (secondID && !classTable->count(secondID->name)) {
+    typeError(undefined_class);
   }
-  this->currentClassName = node->identifier_1->name;
-  this->currentMemberOffset = 0;
-  this->currentLocalOffset = 0;
-  this->currentMethodTable = new MethodTable();
-  this->currentVariableTable = new VariableTable();
-  CI.methods = this->currentMethodTable;
-  CI.members = this->currentVariableTable;
-//node->visit_children(this);
-  (*classTable)[node->identifier_1->name] = CI;
+
+  info.superClassName = (secondID) ? secondID->name : "";
+  info.methods = this->currentMethodTable;
+  info.members = this->currentVariableTable;
+  info.membersSize = 4 * info.members->size();
+  (*classTable)[currentClassName] = info;
   node->visit_children(this);
-  (*classTable)[node->identifier_1->name].membersSize = 4 * (*classTable)[node->identifier_1->name].members->size();
-
-
-// (*classTable)[node->identifier_1->name] = (*CI);
-//map[key] = value;
 
 }
 
