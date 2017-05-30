@@ -66,25 +66,46 @@ void typeError(TypeErrorCode code) {
 // complete to build the symbol table and type check the program.
 // Not all functions must have code, many may be left empty.
 
+template < class a_type, class b_type>
+void set_type_expression(a_type *x, b_type *y) {
+
+  x->basetype = y->basetype;
+  x->objectClassName = y->objectClassName;
+}
+template <class a_type>
+bool check_integer_type(a_type* node) {
+
+  return (node->basetype == bt_integer) && !(node->objectClassName.compare("Integer"));
+}
+
+
 void TypeCheck::visitProgramNode(ProgramNode* node) {
-  // WRITEME: Replace with code if necessary
   classTable = new ClassTable();
   node ->visit_children(this);
 
-  if((*classTable).find("Main") == (*classTable).end()){
+  const std::string programName = "Main" ;
+  const ClassTable::const_iterator className = (*classTable).find(programName);
+  const VariableTable* programVarTable = classTable->at(currentClassName).members;
+  const MethodTable* programMethodTable = classTable->at(currentClassName).methods;
+
+
+  if(!classTable->count(currentClassName)){
     typeError(no_main_class);
-  }else{
-    if((*(*classTable)["Main"].members).size() != 0){
-      typeError(main_class_members_present);
-    }
-    if((*(*classTable)["Main"].methods).find("main") == (*(*classTable)["Main"].methods).end()){
-      typeError(no_main_method);
-    }else{
-      if((*(*classTable)["Main"].methods)["main"].returnType.baseType != bt_none){
-        typeError(main_method_incorrect_signature);
-      }
-    }
+    return;
   }
+  if(programVarTable->size() != 0){
+    typeError(main_class_members_present);
+    return;
+  }
+  if(!programMethodTable->count("main")){
+    typeError(no_main_method);
+    return;
+  }
+  if(programMethodTable->at("main").returnType.baseType != bt_none){
+    typeError(main_method_incorrect_signature);
+    return;
+  }
+
 
 }
 
@@ -185,7 +206,6 @@ void TypeCheck::visitMethodNode(MethodNode* node) {
 void TypeCheck::visitMethodBodyNode(MethodBodyNode* node) {
   // WRITEME: Replace with code if necessary
   node->visit_children(this);
-  node->returnstatement->basetype;
 }
 
 void TypeCheck::visitParameterNode(ParameterNode* node) {
