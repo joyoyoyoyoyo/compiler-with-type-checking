@@ -1,5 +1,10 @@
 #include "typecheck.hpp"
 
+#define forall(iterator,listptr) \
+	for(iterator = listptr->begin(); iterator != listptr->end(); iterator++) \
+
+
+
 // Defines the function used to throw type errors. The possible
 // type errors are defined as an enumeration in the header file.
 void typeError(TypeErrorCode code) {
@@ -72,10 +77,6 @@ void TypeCheck::visitProgramNode(ProgramNode *node) {
 
   const VariableTable *programVarTable = classTable->at(currentClassName).members;
   const MethodTable *programMethodTable = classTable->at(currentClassName).methods;
-//  const MethodTable* programMethodTable = currentMethodTable;
-//  const ClassTable::const_iterator className = (*classTable).find(programName);
-//  const std::string programName = "Main" ;
-
 
   if (!classTable->count(currentClassName)) {
     typeError(no_main_class);
@@ -97,6 +98,23 @@ void TypeCheck::visitProgramNode(ProgramNode *node) {
 
 }
 
+void createClassInScopeHelper(ClassNode *node, TypeCheck* scope) {
+  scope->currentClassName = node->identifier_1->name;
+  scope->currentMethodTable = new MethodTable();
+  scope->currentVariableTable = new VariableTable();
+  scope->currentLocalOffset = 0;
+  scope->currentMemberOffset = 0;
+  scope->currentParameterOffset = 0;
+}
+
+ClassInfo& createClassInfoScopeHelper(ClassInfo& classInfo, IdentifierNode *secondID, TypeCheck* scope) {
+  int byte_size = 4;
+  classInfo.superClassName = (secondID) ? secondID->name : "";
+  classInfo.methods = scope->currentMethodTable;
+  classInfo.members = scope->currentVariableTable;
+  classInfo.membersSize = byte_size * classInfo.members->size();
+  return classInfo;
+}
 
 void TypeCheck::visitClassNode(ClassNode *node) {
 
@@ -104,26 +122,43 @@ void TypeCheck::visitClassNode(ClassNode *node) {
 
   ClassInfo info;
 
-  // class name
-  currentClassName = node->identifier_1->name;
-  currentMethodTable = new MethodTable();
-  currentVariableTable = new VariableTable();
-  currentLocalOffset = 0;
-  currentMemberOffset = 0;
-  currentParameterOffset = 0;
+  createClassInScopeHelper(node, this);
 
   if (secondID && !classTable->count(secondID->name)) {
     typeError(undefined_class);
     return;
   }
+  createClassInfoScopeHelper(info, secondID, this);
 
-  info.superClassName = (secondID) ? secondID->name : "";
-  info.methods = this->currentMethodTable;
-  info.members = this->currentVariableTable;
-  info.membersSize = 4 * info.members->size();
   (*classTable)[currentClassName] = info;
   node->visit_children(this);
 
+}
+
+void returnStmntTypeError(MethodNode *node) {
+  const ReturnStatementNode *returnStatement = node->methodbody->returnstatement;
+  const BaseType nodeAST = node->type->basetype;
+  if (!returnStatement && nodeAST != bt_none) {
+    typeError(return_type_mismatch);
+  }
+  if (returnStatement && nodeAST != returnStatement->basetype && nodeAST != bt_none) {
+    typeError(return_type_mismatch);
+  }
+  if (returnStatement && nodeAST == bt_object && nodeAST != bt_none &&
+      node->type->objectClassName != returnStatement->objectClassName) {
+    typeError(return_type_mismatch);
+  }
+  if (nodeAST == bt_none && returnStatement) {
+    typeError(return_type_mismatch);
+  }
+}
+
+void constructorErrorTypeError(MethodNode* node, TypeCheck *scope) {
+  const std::string ID = node->identifier->name;
+  const BaseType nodeAST = node->type->basetype;
+  if (ID == scope->currentClassName && nodeAST != bt_none) {
+    typeError(constructor_returns_type);
+  }
 }
 
 void TypeCheck::visitMethodNode(MethodNode *node) {
@@ -144,22 +179,8 @@ void TypeCheck::visitMethodNode(MethodNode *node) {
       nodeAST,
       node->type->objectClassName
   };
-  if (!returnStatement && nodeAST != bt_none) {
-    typeError(return_type_mismatch);
-  }
-  if (returnStatement && nodeAST != returnStatement->basetype && nodeAST != bt_none) {
-    typeError(return_type_mismatch);
-  }
-  if (returnStatement && nodeAST == bt_object && nodeAST != bt_none &&
-      node->type->objectClassName != returnStatement->objectClassName) {
-    typeError(return_type_mismatch);
-  }
-  if (ID == currentClassName && nodeAST != bt_none) {
-    typeError(constructor_returns_type);
-  }
-  if (nodeAST == bt_none && returnStatement) {
-    typeError(return_type_mismatch);
-  }
+  returnStmntTypeError(node);
+  constructorErrorTypeError(node, this);
 
   for (std::list<ParameterNode *>::const_iterator iterator = node->parameter_list->begin();
        iterator != node->parameter_list->end(); ++iterator) {
@@ -217,7 +238,9 @@ void TypeCheck::visitDeclarationNode(DeclarationNode *node) {
   if (btObj) {
     node->objectClassName = node->type->objectClassName;
   }
-  for (std::list<IdentifierNode *>::iterator it = node->identifier_list->begin(); it != node->identifier_list->end(); ++it) {
+  std::list<IdentifierNode *>::iterator identifier_iterator = node->identifier_list->begin();
+  std::list<IdentifierNode *>::iterator identifier_iterator_fin = node->identifier_list->end();
+  for (identifier_iterator; identifier_iterator != identifier_iterator_fin; ++identifier_iterator) {
 
     if ( btObj && !(*classTable).count(node->type->objectClassName))
       typeError(undefined_class);
@@ -234,7 +257,7 @@ void TypeCheck::visitDeclarationNode(DeclarationNode *node) {
     };
     currentMemberOffset = (!currentLocalOffset) ? currentMemberOffset + byte_count : currentMemberOffset;
     currentLocalOffset = (!currentLocalOffset) ? currentLocalOffset : currentLocalOffset - byte_count;
-    (*currentVariableTable)[(*it)->name] = varInfo;
+    (*currentVariableTable)[(*identifier_iterator)->name] = varInfo;
   }
 }
 
@@ -245,6 +268,54 @@ void TypeCheck::visitReturnStatementNode(ReturnStatementNode *node) {
   node->basetype = node->expression->basetype;
   node->objectClassName = nodeAST != bt_object ? node->expression->objectClassName : node->objectClassName;
 
+}
+
+void checkIfNotAnObject(bool &located, std::string& reference, std::string &myClass, AssignmentNode *node, TypeCheck* scope) {
+  const VariableTable *programVarTable = scope->classTable->at(scope->currentClassName).members;
+  const MethodTable *programMethodTable = scope->classTable->at(scope->currentClassName).methods;
+  std::string NAME = node->identifier_1->name;
+  if ((*scope->currentVariableTable).count(NAME) && node->identifier_2 != NULL) {
+    myClass = (*scope->currentVariableTable)[NAME].type.objectClassName;
+    located = true;
+    reference = myClass;
+    if ((*scope->currentVariableTable)[NAME].type.baseType != bt_object) {
+      typeError(not_object);
+    }
+  }
+  if (!(*scope->currentVariableTable).count(NAME) && node->identifier_2 != NULL) {
+    myClass = scope->currentClassName;
+    while (myClass != "" && !located) {
+      if ((*(*scope->classTable)[myClass].members).find(NAME) !=
+          (*(*scope->classTable)[myClass].members).end()) {
+        if ((*(*scope->classTable)[myClass].members)[NAME].type.baseType != bt_object)
+          typeError(not_object);
+        located = true;
+        reference = myClass;
+        break;
+      }
+      myClass = (*scope->classTable)[myClass].superClassName;
+    }
+  }
+}
+
+void checkIfUndefinedVariable(bool &located, std::string& reference, std::string &myClass, AssignmentNode *node, TypeCheck* scope) {
+  std::string NAME = node->identifier_1->name;
+  if (!(*scope->currentVariableTable).count(NAME) && node->identifier_2 == NULL) {
+    myClass = scope->currentClassName;
+    while (myClass != "" && !located) {
+      located = ((*(*scope->classTable)[myClass].members).count(NAME));
+      if (located) {
+        node->basetype = (*(*scope->classTable)[myClass].members)[NAME].type.baseType;
+        node->objectClassName = (*(*scope->classTable)[myClass].members)[NAME].type.objectClassName;
+      }
+      myClass = (*scope->classTable)[myClass].superClassName;
+    }
+    if (!located)
+      typeError(undefined_variable);
+  }
+
+  if (node->identifier_2 != NULL && !located)
+    typeError(undefined_variable);
 }
 
 void TypeCheck::visitAssignmentNode(AssignmentNode *node) {
@@ -265,43 +336,9 @@ void TypeCheck::visitAssignmentNode(AssignmentNode *node) {
     node->basetype = (*currentVariableTable)[NAME].type.baseType;
     node->objectClassName = (*currentVariableTable)[NAME].type.objectClassName;
   }
-  if ((*currentVariableTable).count(NAME) && node->identifier_2 != NULL) {
-    myClass = (*currentVariableTable)[NAME].type.objectClassName;
-    located = true;
-    reference = myClass;
-    if ((*currentVariableTable)[NAME].type.baseType != bt_object) {
-      typeError(not_object);
-    }
-  }
-  if (!(*currentVariableTable).count(NAME) && node->identifier_2 == NULL) {
-    myClass = currentClassName;
-    while (myClass != "" && !located) {
-      located = ((*(*classTable)[myClass].members).count(NAME));
-      if (located) {
-        node->basetype = (*(*classTable)[myClass].members)[NAME].type.baseType;
-        node->objectClassName = (*(*classTable)[myClass].members)[NAME].type.objectClassName;
-      }
-      myClass = (*classTable)[myClass].superClassName;
-    }
-    if (!located)
-      typeError(undefined_variable);
-  }
-  if (!(*currentVariableTable).count(NAME) && node->identifier_2 != NULL) {
-    myClass = this->currentClassName;
-    while (myClass != "" && !located) {
-      if ((*(*classTable)[myClass].members).find(NAME) !=
-          (*(*classTable)[myClass].members).end()) {
-        if ((*(*classTable)[myClass].members)[NAME].type.baseType != bt_object)
-          typeError(not_object);
-        located = true;
-        reference = myClass;
-        break;
-      }
-      myClass = (*classTable)[myClass].superClassName;
-    }
-  }
-  if (node->identifier_2 != NULL && !located)
-    typeError(undefined_variable);
+  checkIfNotAnObject(located,reference,myClass,node,this);
+
+  checkIfUndefinedVariable(located, reference, myClass, node, this);
 
   while (node->identifier_2 != NULL && reference != "") {
     if ((*(*classTable)[reference].members).count(node->identifier_2->name)) {
@@ -312,6 +349,7 @@ void TypeCheck::visitAssignmentNode(AssignmentNode *node) {
     }
     reference = (*classTable)[reference].superClassName;
   }
+
   if (node->identifier_2 != NULL && !bufferIsA)
     typeError(undefined_member);
   if (node->basetype != node->expression->basetype)
